@@ -1,0 +1,97 @@
+version: '3'
+
+services:
+  nginx:
+    dns_search: local.io
+    image: rnburn/nginx-opentracing
+    ports:
+    - "80:80"
+    volumes:
+    - ./nginx/files/nginx.conf:/etc/nginx/nginx.conf
+    - ./nginx/files/esaco.conf:/etc/nginx/conf.d/default.conf
+    
+  esaco:
+    dns_search: local.io
+    image: indigoiam/esaco:latest
+    ports:
+      - "8156:8156"
+    volumes:
+      - /etc/grid-security/certificates:/etc/grid-security/certificates:ro
+    environment:
+      - JAEGER_AGENT_HOST=jaeger-agent.local.io
+      - JAEGER_AGENT_PORT=5775
+      - JAEGER_SAMPLER_TYPE=const
+      - JAEGER_SAMPLER_PARAM=1
+      - JAEGER_SAMPLER_MANAGER_HOST_PORT=jaeger-agent.local.io:5778
+      - JAEGER_REPORTER_LOG_SPANS=true
+    networks:
+      default:
+        aliases:
+          - esaco.local.io
+  
+  jaeger-agent:
+    dns_search: local.io
+    image: jaegertracing/jaeger-agent
+    ports:
+      - "5775:5775/udp"
+      - "6831:6831/udp"
+      - "6832:6832/udp"
+      - "5778:5778"
+    command: /go/bin/agent-linux --collector.host-port=jaeger-collector.local.io:14267
+    networks:
+      default:
+        aliases:
+          - jaeger-agent.local.io
+
+  jaeger-collector:
+    dns_search: local.io
+    image: jaegertracing/jaeger-collector
+    ports:
+      - "14267:14267"
+      - "14268:14268"
+      - "9411:9411"
+    environment:
+      - SPAN_STORAGE_TYPE=elasticsearch
+    command: /go/bin/collector-linux --es.server-urls=http://elasticsearch.local.io:9200
+    depends_on:
+      - elasticsearch
+    networks:
+      default:
+        aliases:
+          - jaeger-collector.local.io
+  
+  jaeger-ui:
+    dns_search: local.io
+    image: jaegertracing/jaeger-query
+    ports:
+      - "16686:16686"
+    environment:
+      - SPAN_STORAGE_TYPE=elasticsearch
+    command: /go/bin/query-linux --query.static-files=/go/jaeger-ui/ --es.server-urls=http://elasticsearch.local.io:9200
+    depends_on:
+      - jaeger-collector
+
+  elasticsearch:
+    dns_search: local.io
+    image: docker.elastic.co/elasticsearch/elasticsearch:6.2.4
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    environment:
+      - discovery.type=single-node
+    networks:
+      default:
+        aliases:
+          - elasticsearch.local.io
+  
+  kibana:
+    dns_search: local.io
+    image: docker.elastic.co/kibana/kibana:6.2.4
+    ports:
+     - "5601:5601"
+    environment:
+      - ELASTICSEARCH_URL="http://elasticsearch.local.io:9200"
+    depends_on:
+      - elasticsearch
+
+
